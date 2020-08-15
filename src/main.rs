@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stream = api.stream();
     while let Some(update) = stream.next().await {
         // If the received update contains a new message...
-        let update = update?;
+        let update = update?; // possibly make err not fail?
         if let UpdateKind::Message(message) = update.kind {
             if let MessageKind::Text { ref data, .. } = message.kind {
                 // Print received text message to stdout.
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("<{}.{}>: {}", &message.chat.id(), &message.from.first_name, data);
                 api.send(message.text_reply(
                     resp
-                )).await?;
+                )).await.map_err(|err| println!("Sending message resulted in error! {}", err));
             }
         }
     }
