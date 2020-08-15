@@ -9,7 +9,7 @@ lto = "thin"
 panic = "abort"
 
 [dependencies]
-futures = "0"
+futures = "0.3"
 tokio = { version = "0", features = [ "macros" ] }
 telegram-bot = "0.7"
 regex = "1"
