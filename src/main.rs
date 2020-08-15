@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     UnicodeSegmentation::graphemes(data.as_str(), true)
                         .collect::<Vec<&str>>());
 
-                let re = match RegexBuilder::new(&prev).case_insensitive(flags.case_insensitive).build() {
+                let re = match RegexBuilder::new(&prev).size_limit(4096).case_insensitive(flags.case_insensitive).build() {
                     Ok(r) => r,
                     Err(_) => continue
                 };
