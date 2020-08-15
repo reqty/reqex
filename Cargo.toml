@@ -13,3 +13,4 @@ futures = "0.3"
 tokio = { version = "0", features = [ "macros" ] }
 telegram-bot = "0.7"
 regex = "1"
+unicode-segmentation = "1"
