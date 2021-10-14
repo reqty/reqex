@@ -1,4 +1,11 @@
-# Installing
+# reqex
+
+## Running
+```sh
+docker run -e TELEGRAM_BOT_TOKEN=xyz ghcr.io/reqty/reqex:1
+```
+
+## Installing
 friendly reminder not to run foreign scripts without looking through 'em.
 
 Install rust, openssl dev libraries and usual build tools

@@ -1,0 +1,86 @@
+name: Build (and dockerize) reqex # This is a GENERIC deploy rust thing to docker.
+on: # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#on
+  push:
+    branches: [ $default-branch ]
+    tags: # This builds for all branches with semantically versioned tags (v0.12.3).
+      - v* # https://semver.org will fail, if there are any other tags
+
+env:
+  PACKAGE_NAME: ${{ github.event.repository.name }}
+
+jobs: # https://github.com/actions/starter-workflows/blob/700743e33258dd9548184fb98497da9fb75c5b31/ci/rust.yml
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions-rs/toolchain@v1 # https://github.com/actions-rs/toolchain
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v1 # https://github.com/Swatinem/rust-cache
+
+      - uses: actions-rs/cargo@v1 # https://github.com/actions-rs/cargo
+        with:
+          command: build
+          args: --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: target/release/${{ env.PACKAGE_NAME }}
+
+  ghcr: # https://github.com/jtagcat/action-docker-ghpackages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v2 # for Dockerfile
+      - uses: actions/download-artifact@v2
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+
+      - name: Build image
+        run: docker build . --file Dockerfile --tag ${{ github.event.repository.name }} --label "runnumber=${GITHUB_RUN_ID}" --build-arg PACKAGE_NAME=${{ env.PACKAGE_NAME }}
+
+      - name: Authenticate with ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push image
+        run: |
+          # Destiination, trsnform to lowercase
+          IMAGE_ID=$(echo ghcr.io/${{ github.repository }} | tr '[A-Z]' '[a-z]')
+          function tag_push() {
+          docker tag ${{ github.event.repository.name }} $IMAGE_ID:$1
+          docker push $IMAGE_ID:$1
+          }
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          # trigger is (hopefully semantically) tagged
+          if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+            # Strip +buildinfo
+            VERSION=$(cut -d+ -f1 <<< $VERSION)
+            # Strip "v" prefix from tag name (v1.2.3 to 1.2.3)
+            VERSION=$(sed -e 's/^v//' <<< $VERSION)
+            
+            if [[ -z $(cut -sd- -f1 <<< $VERSION) ]]; then # Not a prerelease (not v0.1.2-rc4)
+              
+              [[ ${TAG_LATEST} == "true" ]] && tag_push latest
+              
+              tag_push $VERSION # push patch (:1.2.3)
+            
+              # push minor version (:1.2)
+              VERSION=$(cut -d. -f -2 <<< $VERSION)
+              tag_push $VERSION
+            
+              # major version (:1)
+              VERSION=$(cut -d. -f -1 <<< $VERSION)
+            fi
+          fi
+          
+          # push normally (and possibly major)
+          tag_push $VERSION
+          # Can't push multiple tags at once: https://github.com/docker/cli/issues/267
