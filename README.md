@@ -2,7 +2,7 @@
 
 ## Running
 ```sh
-docker run -e TELEGRAM_BOT_TOKEN=xyz ghcr.io/reqty/reqex:1
+docker run -e TELEGRAM_BOT_TOKEN=xyz ghcr.io/reqty/reqex:0
 ```
 
 ## Installing
