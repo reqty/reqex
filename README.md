@@ -13,7 +13,8 @@ Incoming requests (`s/fo/bar/g`) are logged to stdout with the username and id o
 
 ### Docker
 ```sh
-docker run -e TELEGRAM_BOT_TOKEN=xyz ghcr.io/reqty/reqex:0
+docker build -t reqex https://github.com/reqty/reqex.git
+docker run -e TELEGRAM_BOT_TOKEN=xyz reqex
 ```
 
 ### systemd

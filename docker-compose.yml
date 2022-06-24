@@ -1,0 +1,8 @@
+version: '3'
+
+services:
+  reqex:
+    build: https://github.com/reqty/reqex.git
+    environment:
+      - TELEGRAM_BOT_TOKEN=xyz
+    restart: unless-stopped
