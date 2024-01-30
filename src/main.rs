@@ -1,126 +1,86 @@
+use frankenstein::{
+    AsyncApi, AsyncTelegramApi, GetUpdatesParams, Message, ReplyParameters, SendMessageParams,
+    UpdateContent,
+};
+use lazy_static::lazy_static;
+use regex::Regex;
+use sedregex::find_and_replace;
 use std::env;
-
-use futures::StreamExt;
-use telegram_bot::*;
 use std::error::Error;
-
-use regex::{RegexBuilder, Regex};
-use unicode_segmentation::UnicodeSegmentation;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let sed_expr_re = Regex::new("^s/(.*)/(.*)/.*").unwrap();
-
     let token = env::var("TELEGRAM_BOT_TOKEN").expect("TELEGRAM_BOT_TOKEN not set");
-    let api = Api::new(token);
+    let api = AsyncApi::new(&token);
 
-    // Fetch new updates via long poll method
-    let mut stream = api.stream();
-    while let Some(update) = stream.next().await {
-        // If the received update contains a new message...
-        let update = update?; // possibly make err not fail?
-        if let UpdateKind::Message(message) = update.kind {
-            if let MessageKind::Text { ref data, .. } = message.kind {
-                // Print received text message to stdout.
-                if !sed_expr_re.is_match(data) {
-                    continue;
-                }
-                let (prev, new, flags) = parse_sed_expr(
-                    UnicodeSegmentation::graphemes(data.as_str(), true)
-                        .collect::<Vec<&str>>());
+    let update_params_builder = GetUpdatesParams::builder();
+    let mut update_params = update_params_builder.clone().build();
 
-                let re = match RegexBuilder::new(&prev).size_limit(4096).case_insensitive(flags.case_insensitive).build() {
-                    Ok(r) => r,
-                    Err(_) => continue
-                };
+    loop {
+        let result = api.get_updates(&update_params).await;
 
-                let new_ref: &str = new.as_ref();
-                let resp = match &message.reply_to_message {
-                    Some(m) => match m.text() {
-                        Some(t) =>
-                            {
-                                if flags.global {
-                                    re.replace_all(&t, new_ref).to_string()
-                                } else {
-                                    re.replace(&t, new_ref).to_string()
-                                }
-                            },
-                        None => continue
-                    },
-                    None => continue
-                };
-
-                println!("<{}.{}>: {}", &message.chat.id(), &message.from.first_name, data);
-                api.send(message.text_reply(
-                    resp
-                )).await.map_err(|err| println!("Sending message resulted in error! {}", err));
+        match result {
+            Err(error) => {
+                println!("Failed to get updates: {error:?}"); //TODO: backoff
             }
-        }
-    }
-    Ok(())
-}
 
-struct Flags {
-    global: bool,
-    case_insensitive: bool,
-    //multiline: bool
-}
+            Ok(response) => {
+                for update in response.result {
+                    if let UpdateContent::Message(message) = update.content {
+                        let api_clone = api.clone();
 
-impl Flags{
-    fn new(s: &str) -> Flags {
-        Flags {
-            global: s.contains('g'),
-            case_insensitive: s.contains('i'),
+                        tokio::spawn(async move {
+                            _ = reqex_message(message, api_clone).await;
+                        });
+                    }
 
-        }
-    }
-}
-
-fn parse_sed_expr(data: Vec<&str>) -> (String, String, Flags) {
-    let (prev, offs) = parse_to_sep(&data[2..], true);
-    //println!("pse got {}: {}", offs, prev);
-    let (new, offs) = parse_to_sep(&data[3+offs..], false);
-    //println!("pse got {}: {}", offs, new);
-    (prev, new, Flags::new(&data[offs..].iter().cloned().collect::<String>()))
-}
-
-fn parse_to_sep(chars: &[&str], keep_double_backslash: bool) -> (String, usize) {
-    //println!("pts: {:?}", chars);
-    let mut prev: Vec<&str> = Vec::new();
-    let mut l = 0; // offset in the input data
-    let mut it = chars.iter().enumerate();
-    while let Some((idx, char)) = it.next() {
-        if *char == "\\" {
-            //peek
-            // if matches, skip one with next
-            // if /, skip this, add that.
-            if chars.len() > idx + 1 {
-                match chars[idx + 1] {
-                    "\\" => {
-                        prev.push("\\");
-                        if keep_double_backslash {
-                            prev.push("\\");
-                        }
-                        it.next();
-                        l += 2;
-                        continue;
-                    },
-                    "/" => {
-                        prev.push("/");
-                        it.next();
-                        l += 2;
-                        continue;
-                    },
-                    _ => ()
+                    update_params = update_params_builder
+                        .clone()
+                        .offset(update.update_id + 1)
+                        .build();
                 }
             }
         }
-        if *char == "/" {
-            // separator
-            return (prev.iter().cloned().collect(), l);
-        }
-        l += 1;
-        prev.push(*char);
     }
-    (prev.iter().cloned().collect(), l)
+}
+
+lazy_static! {
+    static ref SED_EXPR_RE: Regex = Regex::new("^s/(.*)/(.*)/.*").expect("Failed compiling regex");
+}
+
+async fn reqex_message(message: Message, api: AsyncApi) -> Option<()> {
+    // validate input
+    let user_pattern = message.text?;
+    let message_replyof = *(message.reply_to_message?);
+    let user_input = message_replyof.text?;
+
+    if !SED_EXPR_RE.is_match(&user_pattern) {
+        return None;
+    };
+
+    println!(
+        "<{}.{:?}>: {}",
+        message.chat.id, message.from?.first_name, user_pattern
+    );
+
+    let Ok(result) = find_and_replace(&user_input, &[user_pattern]) else {
+        return None;
+    };
+
+    let result_message = SendMessageParams::builder()
+        .chat_id(message.chat.id)
+        .text(result)
+        .reply_parameters(
+            ReplyParameters::builder()
+                .message_id(message.message_id)
+                .build(),
+        )
+        .build();
+
+    if let Err(err) = api.send_message(&result_message).await {
+        println!("Failed to send reply: {err:?}");
+        return None;
+    }
+
+    Some(())
 }

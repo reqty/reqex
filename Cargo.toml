@@ -9,9 +9,8 @@ lto = "thin"
 panic = "abort"
 
 [dependencies]
-futures = "0.3"
-tokio = { version = "0.2", features = [ "macros" ] }
-#telegram-bot = "0.7"
-telegram-bot = { git = "https://github.com/ayrat555/telegram-bot", branch = "ayrat555/api-fixes-10" }
+tokio = { version = "1.35", features = ["full"] }
+frankenstein = { version = "0.30", default-features = false, features = ["async-http-client"] }
+lazy_static = "1"
 regex = "1"
-unicode-segmentation = "1"
+sedregex = "0.2.5"
