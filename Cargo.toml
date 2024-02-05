@@ -14,3 +14,5 @@ frankenstein = { version = "0.30", default-features = false, features = ["async-
 lazy_static = "1"
 regex = "1"
 sedregex = "0.2.5"
+enum_dispatch = "0.3.12"
+async-trait = "0.1.77"
